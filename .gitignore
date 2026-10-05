@@ -1,0 +1,17 @@
+# Java / Maven
+target/
+*.class
+*.log
+
+# IDEs
+.idea/
+*.iml
+.vscode/
+
+# Secretos (equivalente a Secrets Manager: nunca a Git)
+.env
+nginx/certs/*.pem
+nginx/certs/*.key
+
+# Node (por si usamos herramientas en el frontend)
+node_modules/

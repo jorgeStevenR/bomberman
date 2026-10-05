@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bomberman · Cliente de depuración</title>
+<!--
+  Página SOLO para probar la fase 2 sin el frontend de Phaser.
+  Dibuja el mapa con letras. El cliente de verdad llega en la fase 3.
+-->
+<style>
+  body { font-family: system-ui, sans-serif; background: #1e1e24; color: #eee; margin: 16px; }
+  input, button { font-size: 16px; padding: 4px 8px; }
+  pre#board { font-size: 22px; line-height: 1.05; background: #111; padding: 12px; display: inline-block; }
+  #log { white-space: pre-wrap; font-size: 12px; height: 160px; overflow-y: auto; background: #111; padding: 8px; max-width: 700px; }
+  .row { margin: 8px 0; }
+  .legend { color: #aaa; font-size: 14px; }
+</style>
+</head>
+<body>
+<h2>Bomberman · cliente de depuración</h2>
+<div class="row">
+  Sala <input id="room" value="ABCD" size="8">
+  Nombre <input id="name" value="Ana" size="10">
+  <button id="connect">Conectar</button>
+  <button id="start">Empezar partida</button>
+</div>
+<div class="row" id="info">Desconectado</div>
+<pre id="board"></pre>
+<div class="legend">
+  Flechas/WASD = mover · Espacio = bomba ·
+  1-4 jugadores · o bomba · * llama · E enemigo · r/b/s power-ups (alcance/bomba/velocidad) · # muro · B bloque
+</div>
+<div id="log"></div>
+
+<script>
+let ws = null;
+let myId = null;
+let lastMap = null;
+const $ = (id) => document.getElementById(id);
+const log = (txt) => { $('log').textContent = txt + '\n' + $('log').textContent.slice(0, 4000); };
+
+function send(obj) {
+  if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(obj));
+}
+
+$('connect').onclick = () => {
+  const room = $('room').value.trim().toUpperCase();
+  // ws:// en http y wss:// en https (lo usaremos con Nginx + mkcert en la fase 5)
+  const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+  ws = new WebSocket(`${proto}://${location.host}/ws/game?room=${room}`);
+
+  ws.onopen = () => {
+    // Si ya estuvimos en esta sala (recargamos la página), enviamos el token para reconectar
+    const token = sessionStorage.getItem('token-' + room);
+    send({ type: 'JOIN', name: $('name').value, reconnectToken: token });
+  };
+  ws.onclose = (e) => { $('info').textContent = 'Desconectado (' + e.code + ')'; };
+  ws.onmessage = (e) => {
+    const msg = JSON.parse(e.data);
+    switch (msg.type) {
+      case 'WELCOME':
+        myId = msg.playerId;
+        sessionStorage.setItem('token-' + room, msg.reconnectToken);
+        log(`WELCOME: eres ${msg.playerId} en el servidor "${msg.server}"`);
+        break;
+      case 'LOBBY':
+        $('info').textContent = `Sala ${msg.room} [${msg.status}] · ` +
+          msg.players.map(p => `${p.name}${p.host ? ' (anfitrión)' : ''}${p.connected ? '' : ' (desc.)'}`).join(', ');
+        break;
+      case 'STATE':
+        draw(msg);
+        msg.events.forEach(ev => { if (ev.type !== 'BOMB_PLACED') log('evento: ' + ev.type); });
+        break;
+      case 'GAME_OVER':
+        log(`FIN: gana ${msg.winnerName ?? 'nadie (empate)'} · ` +
+            msg.results.map(r => `${r.name}: ${r.score}`).join(', '));
+        break;
+      case 'PONG':
+        log(`latencia: ${Date.now() - msg.t} ms`);
+        break;
+      default:
+        log(e.data);
+    }
+  };
+};
+
+$('start').onclick = () => send({ type: 'START' });
+
+function draw(s) {
+  // Copiamos el mapa a una matriz de caracteres y pintamos encima cada cosa
+  if (s.map) lastMap = s.map;   // el mapa solo llega cuando cambia
+  if (!lastMap) return;
+  const grid = lastMap.map(row => row.split('').map(c => c === '.' ? ' ' : c));
+  const put = (x, y, ch) => { grid[y][x] = ch; };
+  s.powerUps.forEach(p => put(p.x, p.y, { BOMB_RANGE: 'r', EXTRA_BOMB: 'b', SPEED: 's', KICK: 'k', SKULL: 'x', TANK: 't' }[p.type]));
+  (s.shells || []).forEach(sh => put(sh.x, sh.y, '-'));
+  s.bombs.forEach(b => put(b.x, b.y, 'o'));
+  s.explosions.forEach(ex => ex.cells.forEach(c => put(c.x, c.y, '*')));
+  s.enemies.forEach(e => put(e.x, e.y, 'E'));
+  s.players.forEach((p, i) => { if (p.alive) put(p.x, p.y, String(i + 1)); });
+  $('board').textContent = grid.map(r => r.join('')).join('\n');
+
+  const me = s.players.find(p => p.id === myId);
+  const info = s.players.map((p, i) =>
+    `${i + 1}=${p.name} ♥${p.lives} pts:${p.score}${p.connected ? '' : ' (desc.)'}`).join(' | ');
+  $('info').textContent = `Tiempo: ${s.timeLeft}s · ${info}` +
+    (me ? ` · Tú: alcance ${me.bombRange}, bombas ${me.maxBombs}, velocidad ${me.speedLevel}` : '');
+}
+
+// ---- Teclado: guardamos las teclas pulsadas para que soltar una no pare si hay otra ----
+const KEYS = { ArrowUp: 'UP', ArrowDown: 'DOWN', ArrowLeft: 'LEFT', ArrowRight: 'RIGHT',
+               w: 'UP', s: 'DOWN', a: 'LEFT', d: 'RIGHT' };
+const held = [];
+document.addEventListener('keydown', (e) => {
+  if (e.target.tagName === 'INPUT') return;
+  if (e.key === ' ') { send({ type: 'PLACE_BOMB' }); e.preventDefault(); return; }
+  const dir = KEYS[e.key];
+  if (!dir || e.repeat) return;         // e.repeat: ignorar la autorrepetición del teclado
+  e.preventDefault();
+  held.push(dir);
+  send({ type: 'MOVE', dir });
+});
+document.addEventListener('keyup', (e) => {
+  const dir = KEYS[e.key];
+  if (!dir) return;
+  const i = held.indexOf(dir);
+  if (i >= 0) held.splice(i, 1);
+  if (held.length === 0) send({ type: 'STOP' });
+  else send({ type: 'MOVE', dir: held[held.length - 1] });
+});
+
+// PING cada 5 s: mantiene viva la conexión y mide la latencia
+setInterval(() => send({ type: 'PING', t: Date.now() }), 5000);
+</script>
+</body>
+</html>

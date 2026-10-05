@@ -1,0 +1,31 @@
+server:
+  port: 8081
+
+spring:
+  application:
+    name: game-server
+
+# Configuración propia del juego (se lee en GameServerProperties)
+game:
+  # Nombre de esta réplica. En Docker, HOSTNAME es el id del contenedor:
+  # así vemos qué réplica atiende cada sala (útil para demostrar el balanceo).
+  server-id: ${SERVER_ID:${HOSTNAME:local}}
+  tick-rate: 20                    # ticks por segundo del game loop
+  reconnect-grace-seconds: 15      # tiempo para volver tras una desconexión
+  max-messages-per-second: 30      # límite anti-spam por conexión
+  # Orígenes permitidos para el WebSocket. "*" es cómodo en desarrollo;
+  # en producción se pondría el dominio real (p. ej. https://bomberman.midominio.com)
+  allowed-origins: "*"
+  # Trucos para probar (tecla T = tanque). Desactivados por defecto: el servidor
+  # rechaza el mensaje CHEAT. Solo se activan en el perfil "dev".
+  cheats-enabled: false
+
+# Spring Actuator: el equivalente local a CloudWatch
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  endpoint:
+    health:
+      show-details: always

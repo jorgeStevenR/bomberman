@@ -1,0 +1,14 @@
+# Perfil "dev": SOLO para desarrollar sin Docker.
+# El game-server sirve también la carpeta ../frontend, así abrimos el juego en
+# http://localhost:8081/ y el WebSocket está en el mismo origen.
+# En Docker (fase 5) esto lo hace Nginx y este perfil no se usa.
+#
+# Arrancar con:  mvn spring-boot:run -Dspring-boot.run.profiles=dev
+spring:
+  web:
+    resources:
+      static-locations: classpath:/static/,file:../frontend/
+
+# En desarrollo permitimos trucos para probar power-ups (tecla T = tanque)
+game:
+  cheats-enabled: true
