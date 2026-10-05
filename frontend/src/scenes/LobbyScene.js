@@ -1,6 +1,9 @@
-import { PLAYER_COLORS, SCALE } from '../config.js';
+import { MODE_NAMES, PLAYER_COLORS, SCALE } from '../config.js';
 import { net } from '../net.js';
 import { drawBackdrop, makeButton, textStyle } from '../ui.js';
+
+const MODE_ON = 0x22c55e;  // modo elegido: verde
+const MODE_OFF = 0x64748b; // modo no elegido: gris
 
 /** Sala de espera: código para compartir, jugadores conectados y botón de empezar. */
 export class LobbyScene extends Phaser.Scene {
@@ -31,9 +34,18 @@ export class LobbyScene extends Phaser.Scene {
       this.slots.push({ panel, sprite, name, tag, index: i });
     }
 
-    this.info = this.add.text(width / 2, 480, '', textStyle(18, '#e2e8f0')).setOrigin(0.5);
-    this.startButton = makeButton(this, width / 2, 545, '¡Empezar!', () => net.send({ type: 'START' }), { width: 260 });
-    makeButton(this, width / 2, 620, 'Salir', () => {
+    // Modo de juego: el anfitrión elige con dos botones; los demás ven cuál está elegido
+    const setMode = (mode) => net.send({ type: 'SET_MODE', mode });
+    const opts = { width: 230, height: 44, fontSize: 19, color: MODE_OFF };
+    this.modeButtons = {
+      CLASSIC: makeButton(this, width / 2 - 122, 462, MODE_NAMES.CLASSIC, () => setMode('CLASSIC'), opts),
+      GUNS: makeButton(this, width / 2 + 122, 462, MODE_NAMES.GUNS, () => setMode('GUNS'), opts),
+    };
+    this.modeText = this.add.text(width / 2, 462, '', textStyle(20, '#fde68a')).setOrigin(0.5);
+
+    this.info = this.add.text(width / 2, 508, '', textStyle(18, '#e2e8f0')).setOrigin(0.5);
+    this.startButton = makeButton(this, width / 2, 562, '¡Empezar!', () => net.send({ type: 'START' }), { width: 260 });
+    makeButton(this, width / 2, 632, 'Salir', () => {
       net.leave();
       this.scene.start('Menu');
     }, { width: 160, color: 0x94a3b8 });
@@ -67,8 +79,15 @@ export class LobbyScene extends Phaser.Scene {
       }
     });
 
+    const mode = lobby.mode || 'CLASSIC';
+    const host = net.isHost();
+    Object.entries(this.modeButtons).forEach(([key, button]) => {
+      button.setVisible(host).setColor(key === mode ? MODE_ON : MODE_OFF);
+    });
+    this.modeText.setVisible(!host).setText(`Modo: ${MODE_NAMES[mode]}`);
+
     const n = lobby.players.length;
-    if (net.isHost()) {
+    if (host) {
       this.info.setText(n === 1 ? 'Puedes empezar solo contra los enemigos o esperar a más jugadores'
         : `${n} jugadores listos. ¡Cuando quieras!`);
       this.startButton.setVisible(true).setEnabled(true);

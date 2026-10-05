@@ -34,6 +34,10 @@ Cliente                                  Servidor
 | `STOP` | – | Al soltar todas las teclas de dirección | `{"type":"STOP"}` |
 | `PLACE_BOMB` | – | Al pulsar espacio. A pie pone una bomba; en el tanque, **dispara** | `{"type":"PLACE_BOMB"}` |
 | `EMOTE` | `emote`: 0 a 3 | Teclas 1–4 (😂 😡 👋 💀). Máximo 1 por segundo | `{"type":"EMOTE","emote":2}` |
+| `SET_MODE` | `mode`: `CLASSIC` o `GUNS` | El anfitrión elige el modo (en la sala de espera o al terminar) | `{"type":"SET_MODE","mode":"GUNS"}` |
+| `FIRE` | `on`: `true`/`false` | Modo pistolas: mantener o soltar el gatillo. El servidor dispara según la cadencia del arma | `{"type":"FIRE","on":true}` |
+| `MINE` | – | Modo pistolas: golpe de pico a la casilla de enfrente (3 golpes rompen un bloque) | `{"type":"MINE"}` |
+| `CHEAT` | `powerUp` | Truco de pruebas (tecla T). Solo funciona con `game.cheats-enabled=true` | `{"type":"CHEAT","powerUp":"TANK"}` |
 | `PING` | `t` (hora del cliente en ms) | Cada 5 s, para medir la latencia | `{"type":"PING","t":1759697653000}` |
 
 **Por qué `MOVE` + `STOP` y no "un mensaje por paso":** el cliente avisa cuando *empieza* y cuando *deja de* moverse. El servidor mueve al jugador a su ritmo (según la velocidad) mientras la intención esté activa. Así se envían poquísimos mensajes, y aunque alguien mande 100 `MOVE` por segundo no irá más rápido.
@@ -77,7 +81,11 @@ Este ejemplo es real, capturado del servidor:
   - `tankArmor` (golpes que aguanta el tanque; 0 = a pie);
   - `tankSeconds` (segundos de tanque que le quedan).
 - `bombs[]` también trae `sliding` (si la han pateado) y `moveDelayTicks` (velocidad al deslizarse).
-- `shells[]`: balas del tanque, `{"id":1,"x":4,"y":1,"dir":"RIGHT"}`.
+- `shells[]`: proyectiles, `{"id":1,"x":4,"y":1,"dir":"RIGHT","kind":"BULLET"}`. `kind` es `BULLET` (arma) o `TANK` (obús que rompe bloques).
+- `mode`: `CLASSIC` o `GUNS`. En el modo pistolas, además:
+  - `players[]` trae `hp`, `maxHp`, `weaponLevel` y `weapon` (`PISTOL`, `SMG`, `SHOTGUN` o `RIFLE`);
+  - `enemies[]` trae `hp` y `maxHp`;
+  - `cracks[]` lista los bloques golpeados con el pico: `{"x":3,"y":5,"hits":2}`.
 - `explosions[]`: `{"center":{"x":3,"y":3},"cells":[{"x":3,"y":3},{"x":3,"y":2},...],"ticksLeft":9}`
 - `powerUps[].type`: `BOMB_RANGE`, `EXTRA_BOMB`, `SPEED`, `KICK`, `SKULL` o `TANK`.
 - `events[]`: lo que pasó en este tick, para sonidos y animaciones:

@@ -79,6 +79,22 @@ class Sfx {
   wallDrop() { this.tone(70, 0.12, { type: 'sine', volume: 0.3, slideTo: 40 }); }
   alarm() { [880, 660, 880, 660, 880, 660].forEach((f, i) => this.tone(f, 0.18, { type: 'square', delay: i * 0.2, volume: 0.08 })); }
   pop() { this.tone(660, 0.07, { type: 'sine', slideTo: 990, volume: 0.1 }); }
+
+  // ---- Modo pistolas ----
+  /** Un sonido distinto por arma. */
+  gunshot(weapon) {
+    switch (weapon) {
+      case 'SMG': this.noise(0.05, { volume: 0.12, filter: 4000 }); this.tone(900, 0.04, { slideTo: 400, volume: 0.04 }); break;
+      case 'SHOTGUN': this.noise(0.25, { volume: 0.35, filter: 1500 }); this.tone(140, 0.2, { type: 'sine', slideTo: 60, volume: 0.2 }); break;
+      case 'RIFLE': this.tone(1600, 0.18, { type: 'sawtooth', slideTo: 200, volume: 0.08 }); this.noise(0.08, { volume: 0.15, filter: 5000 }); break;
+      default: this.noise(0.08, { volume: 0.18, filter: 2500 }); this.tone(500, 0.06, { slideTo: 200, volume: 0.06 });
+    }
+  }
+  swing() { this.noise(0.06, { volume: 0.06, filter: 3000 }); }
+  pickaxe() { this.tone(1300, 0.06, { type: 'square', slideTo: 900, volume: 0.07 }); this.noise(0.07, { volume: 0.12, filter: 2000 }); }
+  hitSoft() { this.tone(300, 0.07, { type: 'square', slideTo: 150, volume: 0.06 }); }
+  heal() { [440, 554, 659].forEach((f, i) => this.tone(f, 0.12, { type: 'sine', delay: i * 0.07, volume: 0.1 })); }
+  evolve() { [392, 523, 659, 784, 1047].forEach((f, i) => this.tone(f, 0.14, { type: 'square', delay: i * 0.08, volume: 0.09 })); }
   win() { [523, 659, 784, 659, 784, 1047].forEach((f, i) => this.tone(f, 0.16, { delay: i * 0.13, volume: 0.1 })); }
   lose() { [392, 349, 311, 262].forEach((f, i) => this.tone(f, 0.28, { type: 'triangle', delay: i * 0.22, volume: 0.15 })); }
 }

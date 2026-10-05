@@ -51,3 +51,13 @@ export const CURSE_TEXT = {
   DIARRHEA: '¡Diarrea de bombas!',
   NO_BOMBS: '¡Sin bombas!',
 };
+
+/** En el modo pistolas, dos maldiciones se llaman distinto. */
+export const CURSE_TEXT_GUNS = {
+  DIARRHEA: '¡Gatillo atascado!',
+  NO_BOMBS: '¡Sin munición!',
+};
+
+export const WEAPON_NAMES = { PISTOL: 'PISTOLA', SMG: 'SUBFUSIL', SHOTGUN: 'ESCOPETA', RIFLE: 'RIFLE' };
+
+export const MODE_NAMES = { CLASSIC: '💣 Clásico', GUNS: '🔫 Pistolas y pico' };

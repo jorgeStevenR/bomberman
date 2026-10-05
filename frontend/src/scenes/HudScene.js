@@ -1,4 +1,4 @@
-import { HUD_HEIGHT, PLAYER_COLORS, TILE } from '../config.js';
+import { HUD_HEIGHT, PLAYER_COLORS, TILE, WEAPON_NAMES } from '../config.js';
 import { net } from '../net.js';
 import { sfx } from '../sound.js';
 import { textStyle } from '../ui.js';
@@ -46,6 +46,7 @@ export class HudScene extends Phaser.Scene {
     this.miniDynamic = this.add.graphics();
     this.mapRows = null;
     this.mapKey = '';
+    this.miniImage = null;
     this.startAnnounced = false;
 
     net.on('state', this.render, this);
@@ -91,18 +92,31 @@ export class HudScene extends Phaser.Scene {
     this.miniX = this.scale.width - w - 10;
     this.miniY = this.scale.height - h - 10;
 
+    // Marco (2 rectángulos en un Graphics: barato)
     const g = this.miniStatic;
     g.clear();
     g.fillStyle(0x0b1020, 0.8).fillRect(this.miniX - 3, this.miniY - 3, w + 6, h + 6);
-    g.fillStyle(0x2f5d2a, 0.9).fillRect(this.miniX, this.miniY, w, h);
+    g.lineStyle(2, 0x334155, 1).strokeRect(this.miniX - 3, this.miniY - 3, w + 6, h + 6);
+
+    // Las ~1.400 casillas se pintan UNA vez en una imagen (CanvasTexture). Antes eran
+    // 1.400 rectángulos de un Graphics, y Phaser vuelve a procesarlos en CADA fotograma.
+    let tex = this.textures.exists('minimap') ? this.textures.get('minimap') : null;
+    if (tex && (tex.width !== w || tex.height !== h)) tex.setSize(w, h);
+    if (!tex) tex = this.textures.createCanvas('minimap', w, h);
+    const ctx = tex.getContext();
+    ctx.fillStyle = '#2f5d2a';
+    ctx.fillRect(0, 0, w, h);
     rows.forEach((row, y) => {
       for (let x = 0; x < row.length; x++) {
         if (row[x] === '.') continue;
-        g.fillStyle(row[x] === '#' ? 0x64748b : 0xb45309, 1)
-          .fillRect(this.miniX + x * this.cell, this.miniY + y * this.cell, this.cell, this.cell);
+        ctx.fillStyle = row[x] === '#' ? '#64748b' : '#b45309';
+        ctx.fillRect(x * this.cell, y * this.cell, this.cell, this.cell);
       }
     });
-    g.lineStyle(2, 0x334155, 1).strokeRect(this.miniX - 3, this.miniY - 3, w + 6, h + 6);
+    tex.refresh();
+    if (!this.miniImage) this.miniImage = this.add.image(this.miniX, this.miniY, 'minimap').setOrigin(0);
+    this.miniImage.setPosition(this.miniX, this.miniY);
+    this.children.bringToTop(this.miniDynamic);
   }
 
   /** Jugadores, enemigos, el tanque y el rectángulo de lo que estás viendo (cada fotograma). */
@@ -149,6 +163,7 @@ export class HudScene extends Phaser.Scene {
       const alpha = under ? 0.2 : 1;
       this.miniStatic.setAlpha(alpha);
       this.miniDynamic.setAlpha(alpha);
+      if (this.miniImage) this.miniImage.setAlpha(alpha);
     }
   }
 
@@ -170,8 +185,12 @@ export class HudScene extends Phaser.Scene {
     const skull = this.add.image(x + 9, y + 10, 'skull').setScale(1.3);    // ¿está maldito? (esquina)
     const armor = this.add.text(x + 20, y + 54, '', textStyle(11, '#93c5fd', { strokeThickness: 2 })).setOrigin(0.5);
     const status = this.add.text(x + 95, y + 32, '', textStyle(13, '#fca5a5')).setOrigin(0.5);
-    return { elements: [bg, head, name, score, ...hearts, ...stats, ...icons, armor], bg, head, name, score,
-             hearts, stats, kick, skull, armor, status, x, index: i };
+    // Modo pistolas: barra de vida y arma (sustituyen a los iconos de bombas)
+    const hpBar = this.add.graphics();
+    const weaponText = this.add.text(x + CARD_W - 5, y + 26, '', textStyle(11, '#fde68a', { strokeThickness: 2 }))
+      .setOrigin(1, 0); // alineado a la derecha para que no se salga de la tarjeta
+    return { elements: [bg, head, name, score, ...hearts, ...stats, ...icons, armor, weaponText], bg, head, name,
+             score, hearts, stats, icons, kick, skull, armor, status, hpBar, weaponText, x, y, index: i };
   }
 
   render(s) {
@@ -241,6 +260,20 @@ export class HudScene extends Phaser.Scene {
       const inTank = p.tankArmor > 0;
       card.head.setTexture(inTank ? `tank${card.index}` : `player${card.index}`, 0);
       card.armor.setText(inTank ? `■${p.tankArmor} ${p.tankSeconds}s` : '');
+
+      // Clásico: iconos de alcance/bombas/velocidad/patada. Pistolas: vida y arma.
+      const guns = s.mode === 'GUNS';
+      card.stats.forEach((t) => t.setVisible(!guns));
+      card.icons.forEach((icon) => icon.setVisible(!guns));
+      card.kick.setVisible(!guns);
+      card.hpBar.clear();
+      card.weaponText.setText(guns && p.alive ? `${WEAPON_NAMES[p.weapon]} ★${p.weaponLevel}` : '');
+      if (guns && p.alive) {
+        const f = p.hp / p.maxHp;
+        const color = f > 0.6 ? 0x22c55e : f > 0.3 ? 0xeab308 : 0xef4444;
+        card.hpBar.fillStyle(0x0b1020, 1).fillRect(card.x + 44, card.y + 46, 100, 10);
+        card.hpBar.fillStyle(color, dimmed ? 0.4 : 1).fillRect(card.x + 45, card.y + 47, 98 * f, 8);
+      }
     });
 
     const min = Math.floor(s.timeLeft / 60);

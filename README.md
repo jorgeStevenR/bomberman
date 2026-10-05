@@ -24,6 +24,15 @@ Abre `http://localhost:8081`. Desde otro PC de la misma red WiFi, usa `http://IP
 | M | Silenciar |
 | T | Truco: tanque (solo con el perfil `dev`) |
 
+## Modos de juego
+
+El anfitrión lo elige en la sala de espera:
+
+- **💣 Clásico:** bombas en cruz, reacciones en cadena, power-ups (alcance, bombas, velocidad, patada, calavera) y 3 vidas.
+- **🔫 Pistolas y pico:** disparas manteniendo Espacio y picas bloques con E. Hay barra de vida y botiquines. Cada mejora de arma da más cadencia, y cada 3 el arma **evoluciona**: pistola → subfusil → escopeta (abanico de 3 balas) → rifle (atraviesa).
+
+En los dos modos hay un **mini tanque** escondido cerca del centro del mapa, y **muerte súbita** en los últimos 45 s.
+
 ## Tests
 
 ```bash

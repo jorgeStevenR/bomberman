@@ -13,10 +13,9 @@ export function textStyle(size, color = '#ffffff', extra = {}) {
  * Botón sencillo: rectángulo redondeado + texto, con efecto al pasar el ratón.
  * Devuelve un objeto con setEnabled(bool) y setLabel(texto).
  */
-export function makeButton(scene, x, y, label, onClick, { width = 220, color = 0xf59e0b, textColor = '#1f2937' } = {}) {
-  const height = 52;
+export function makeButton(scene, x, y, label, onClick, { width = 220, color = 0xf59e0b, textColor = '#1f2937', height = 52, fontSize = 22 } = {}) {
   const bg = scene.add.graphics();
-  const text = scene.add.text(x, y, label, textStyle(22, textColor, { strokeThickness: 0 })).setOrigin(0.5);
+  const text = scene.add.text(x, y, label, textStyle(fontSize, textColor, { strokeThickness: 0 })).setOrigin(0.5);
   const zone = scene.add.zone(x, y, width, height).setInteractive({ useHandCursor: true });
   let enabled = true;
   let hover = false;
@@ -40,6 +39,7 @@ export function makeButton(scene, x, y, label, onClick, { width = 220, color = 0
 
   return {
     setEnabled(value) { enabled = value; text.setAlpha(value ? 1 : 0.6); draw(); return this; },
+    setColor(value) { color = value; draw(); return this; },
     setLabel(value) { text.setText(value); return this; },
     setVisible(value) { bg.setVisible(value); text.setVisible(value); zone.setVisible(value); zone.input.enabled = value; return this; },
   };

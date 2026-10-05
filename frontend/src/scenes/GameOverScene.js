@@ -1,4 +1,4 @@
-import { PLAYER_COLORS } from '../config.js';
+import { MODE_NAMES, PLAYER_COLORS } from '../config.js';
 import { net } from '../net.js';
 import { sfx } from '../sound.js';
 import { makeButton, textStyle } from '../ui.js';
@@ -49,6 +49,11 @@ export class GameOverScene extends Phaser.Scene {
     });
 
     // Botones
+    // El anfitrión puede cambiar de modo antes de la revancha
+    this.modeButton = makeButton(this, width / 2, 466, '', () => {
+      const current = (net.lastLobby && net.lastLobby.mode) || 'CLASSIC';
+      net.send({ type: 'SET_MODE', mode: current === 'GUNS' ? 'CLASSIC' : 'GUNS' });
+    }, { width: 300, height: 40, fontSize: 17, color: 0x64748b, textColor: '#ffffff' });
     this.againButton = makeButton(this, width / 2, 520, 'Volver a jugar', () => net.send({ type: 'START' }), { width: 260 });
     this.waitText = this.add.text(width / 2, 520, 'Esperando a que el anfitrión empiece otra...', textStyle(18, '#cbd5e1'))
       .setOrigin(0.5);
@@ -73,6 +78,8 @@ export class GameOverScene extends Phaser.Scene {
     const host = net.isHost();
     this.againButton.setVisible(host);
     this.waitText.setVisible(!host);
+    const mode = (net.lastLobby && net.lastLobby.mode) || 'CLASSIC';
+    this.modeButton.setVisible(host).setLabel(`Modo: ${MODE_NAMES[mode]}  ⇄`);
   }
 
   confetti() {

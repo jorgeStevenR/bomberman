@@ -71,7 +71,7 @@ export class MenuScene extends Phaser.Scene {
     $('join').addEventListener('click', joinWithCode);
     $('room').addEventListener('keydown', (e) => { if (e.key === 'Enter') joinWithCode(); });
 
-    this.add.text(width / 2, 650, 'Flechas/WASD: mover  ·  Espacio: bomba/disparar  ·  1-4: emotes  ·  M: silenciar',
+    this.add.text(width / 2, 650, 'WASD: mover · Espacio: bomba/disparar · E: pico · 1-4: emotes · M: mudo',
       textStyle(16, '#cbd5e1')).setOrigin(0.5);
   }
 

@@ -231,6 +231,82 @@ const SHELL = [ // bala del tanque (8x6)
   '..KKKK..',
 ];
 
+// ------------------------------------------------- modo pistolas y pico ----
+// Armas dibujadas mirando a la DERECHA (se voltean/giran según hacia dónde mira el jugador).
+const GUN_PISTOL = [
+  'KKKKKKKK..',
+  'KGGGGGGGK.',
+  'KKKKKGKKK.',
+  '....KDK...',
+  '....KDK...',
+  '....KKK...',
+];
+const GUN_SMG = [
+  'KKKKKKKKKKK.',
+  'KGGGGGGGGGGK',
+  'KKKKGKKKKKK.',
+  '...KDK.KDK..',
+  '...KDK.KKK..',
+  '...KKK......',
+];
+const GUN_SHOTGUN = [
+  'KKKKKKKKKKKKKK',
+  'KBBBBGGGGGGGGK',
+  'KBBBKKKKKKKKKK',
+  'KBBK..........',
+  'KKK...........',
+];
+const GUN_RIFLE = [
+  '....KKKK........',
+  '....KCCK........',
+  'KKKKKKKKKKKKKKKK',
+  'KBBBGGGGGGGGGGGK',
+  'KBBKKKKKKKKKKKKK',
+  'KKK.............',
+];
+const PICKAXE = [
+  '..KKKKKK....',
+  '.KGGGGGGK...',
+  'KGKKKBKKGK..',
+  'KK...BK.KK..',
+  '.....BK.....',
+  '.....BK.....',
+  '.....BK.....',
+  '.....BK.....',
+  '.....BK.....',
+  '.....KK.....',
+];
+const BULLET = [
+  '.KKKK.',
+  'KYYYWK',
+  'KYYYWK',
+  '.KKKK.',
+];
+const ICON_WEAPON = [
+  '..........',
+  '.KKKKKKKK.',
+  '.KGGGGGGGK',
+  '.KKKKGKKK.',
+  '....KDK...',
+  '....KDK...',
+  '....KKK...',
+  '..........',
+  '..........',
+  '..........',
+];
+const ICON_HEALTH = [
+  '..........',
+  '.KKKKKKKK.',
+  '.KWWRRWWK.',
+  '.KWWRRWWK.',
+  '.KRRRRRRK.',
+  '.KRRRRRRK.',
+  '.KWWRRWWK.',
+  '.KWWRRWWK.',
+  '.KKKKKKKK.',
+  '..........',
+];
+
 const HEART = [
   '.RR.RR..',
   'RRRRRRR.',
@@ -330,6 +406,16 @@ function drawBlock(ctx) {
   rect(ctx, '#4a2412', 15, 0, 1, 16);
 }
 
+/** Grietas sobre un bloque golpeado con el pico (nivel 1 = poco, 2 = a punto de romperse). */
+function drawCracks(ctx, level) {
+  const c = 'rgba(20,10,5,0.85)';
+  [[7, 2], [7, 3], [6, 4], [6, 5], [7, 6], [8, 7], [8, 8], [9, 9]].forEach(([x, y]) => rect(ctx, c, x, y, 1, 1));
+  if (level >= 2) {
+    [[3, 9], [4, 9], [5, 10], [6, 10], [7, 11], [11, 4], [12, 5], [12, 6], [13, 7], [9, 12], [10, 13]]
+      .forEach(([x, y]) => rect(ctx, c, x, y, 1, 1));
+  }
+}
+
 // --------------------------------------------------------------- llamas ------
 // Se dibujan "mirando a la derecha"; para otras direcciones se rota el sprite.
 const FLAME = { outer: '#ff5a00', mid: '#ffb000', inner: '#fff3b0', core: '#ffffff' };
@@ -427,6 +513,20 @@ export function createTextures(scene) {
     makeSheet(scene, `tank${i}`, [TANK_A, TANK_B], palette);
   });
   makeTile(scene, 'shell', (ctx) => paint(ctx, SHELL, { ...BASE_PALETTE, O: '#f97316' }), 8, 6);
+
+  // Modo pistolas: armas, pico, bala, power-ups y grietas
+  const gunPalette = { ...BASE_PALETTE, G: '#94a3b8', D: '#334155', B: '#8b5a2b', C: '#22d3ee' };
+  const sprite = (key, rows, palette) => makeTile(scene, key, (ctx) => paint(ctx, rows, palette), rows[0].length, rows.length);
+  sprite('gun-PISTOL', GUN_PISTOL, gunPalette);
+  sprite('gun-SMG', GUN_SMG, gunPalette);
+  sprite('gun-SHOTGUN', GUN_SHOTGUN, gunPalette);
+  sprite('gun-RIFLE', GUN_RIFLE, gunPalette);
+  sprite('pickaxe', PICKAXE, { ...BASE_PALETTE, G: '#cbd5e1', B: '#8b5a2b' });
+  sprite('bullet', BULLET, { ...BASE_PALETTE, Y: '#fde047' });
+  makePowerUp(scene, 'pu-WEAPON', ICON_WEAPON, '#1e3a8a');
+  makePowerUp(scene, 'pu-HEALTH', ICON_HEALTH, '#14532d');
+  makeTile(scene, 'crack1', (ctx) => drawCracks(ctx, 1));
+  makeTile(scene, 'crack2', (ctx) => drawCracks(ctx, 2));
 
   makeTile(scene, 'heart', (ctx) => paint(ctx, HEART, BASE_PALETTE), 8, 7);
   makeTile(scene, 'heart-empty', (ctx) => paint(ctx, HEART, { R: '#475569', W: '#64748b' }), 8, 7);

@@ -1,9 +1,25 @@
-import { CURSE_TEXT, DEPTH, EMOTES, HUD_HEIGHT, PLAYER_COLORS, SCALE, TILE, tileToWorld } from '../config.js';
+import {
+  CURSE_TEXT, CURSE_TEXT_GUNS, DEPTH, EMOTES, HUD_HEIGHT, PLAYER_COLORS, SCALE, TILE, WEAPON_NAMES, tileToWorld,
+} from '../config.js';
 import { GridInterpolator } from '../interpolation.js';
+import { LocalPredictor } from '../prediction.js';
 import { net } from '../net.js';
 import { sfx } from '../sound.js';
 import { DIR_ANGLE, STAND_FRAME } from '../textures.js';
 import { textStyle } from '../ui.js';
+
+const OPPOSITE = { UP: 'DOWN', DOWN: 'UP', LEFT: 'RIGHT', RIGHT: 'LEFT' };
+
+/** Dónde se dibuja el arma respecto al centro del personaje, según hacia dónde mira. */
+const GUN_OFFSET = { RIGHT: [16, 8], LEFT: [-16, 8], UP: [12, -6], DOWN: [-12, 12] };
+
+/** Barra de vida: fondo oscuro + relleno verde→amarillo→rojo según lo que quede. */
+function drawBar(g, x, y, width, height, fraction) {
+  const f = Math.max(0, Math.min(1, fraction));
+  const color = f > 0.6 ? 0x22c55e : f > 0.3 ? 0xeab308 : 0xef4444;
+  g.fillStyle(0x0b1020, 0.85).fillRect(x - 1, y - 1, width + 2, height + 2);
+  g.fillStyle(color, 1).fillRect(x, y, width * f, height);
+}
 
 /** Teclas de emote: 1-4 de la fila de números o del teclado numérico. */
 const EMOTE_KEYS = { Digit1: 0, Digit2: 1, Digit3: 2, Digit4: 3, Numpad1: 0, Numpad2: 1, Numpad3: 2, Numpad4: 3 };
@@ -38,6 +54,10 @@ export class GameScene extends Phaser.Scene {
     this.powerUps = new Map(); // "x,y" → { sprite, glow }
     this.flames = new Map();   // "cx,cy" → [sprites]
     this.shells = new Map();   // id → { sprite, interp }
+    this.cracks = new Map();   // "x,y" → imagen de grietas (modo pistolas)
+    this.mode = 'CLASSIC';
+    this.mineTimer = null;
+    this.firing = false;
     this.msPerTick = 1000 / net.tickRate;
     this.finished = false;
     this.lastWallSound = 0;
@@ -102,7 +122,24 @@ export class GameScene extends Phaser.Scene {
       return;
     }
     if (e.code === 'Space') {
-      if (!e.repeat) net.send({ type: 'PLACE_BOMB' });
+      if (e.repeat) return;
+      // Clásico: una bomba por pulsación. Pistolas: mantener = disparar sin parar
+      // (la cadencia la controla el servidor según el arma).
+      if (this.mode === 'GUNS') {
+        this.firing = true;
+        net.send({ type: 'FIRE', on: true });
+      } else {
+        net.send({ type: 'PLACE_BOMB' });
+      }
+      return;
+    }
+    if (e.code === 'KeyE' && this.mode === 'GUNS') {
+      if (e.repeat || this.mineTimer) return;
+      // Mantener E = picar repetidamente. Enviamos un MINE cada 260 ms (el servidor
+      // también limita la frecuencia; no usamos la autorrepetición del teclado
+      // porque mandaría ~30 mensajes por segundo).
+      net.send({ type: 'MINE' });
+      this.mineTimer = this.time.addEvent({ delay: 260, loop: true, callback: () => net.send({ type: 'MINE' }) });
       return;
     }
     const dir = KEY_TO_DIR[e.code];
@@ -113,13 +150,34 @@ export class GameScene extends Phaser.Scene {
   }
 
   onKeyUp(e) {
+    if (e.code === 'Space' && this.firing) {
+      this.firing = false;
+      net.send({ type: 'FIRE', on: false });
+      return;
+    }
+    if (e.code === 'KeyE') {
+      this.stopMining();
+      return;
+    }
     const dir = KEY_TO_DIR[e.code];
     if (!dir) return;
     this.held = this.held.filter((d) => d !== dir);
     net.send(this.held.length ? { type: 'MOVE', dir: this.held[this.held.length - 1] } : { type: 'STOP' });
   }
 
+  stopMining() {
+    if (this.mineTimer) {
+      this.mineTimer.remove();
+      this.mineTimer = null;
+    }
+  }
+
   releaseKeys() {
+    this.stopMining();
+    if (this.firing) {
+      this.firing = false;
+      net.send({ type: 'FIRE', on: false });
+    }
     if (this.held.length) {
       this.held = [];
       net.send({ type: 'STOP' });
@@ -146,7 +204,9 @@ export class GameScene extends Phaser.Scene {
       else this.updateMap(s.map);
     }
     if (!this.mapRows) return;
+    this.mode = s.mode || 'CLASSIC';
 
+    this.syncCracks(s.cracks || []);
     this.syncPowerUps(s.powerUps);
     this.syncBombs(s.bombs, now);
     this.syncFlames(s.explosions);
@@ -311,23 +371,28 @@ export class GameScene extends Phaser.Scene {
       let entry = this.shells.get(s.id);
       if (!entry) {
         const w = tileToWorld(s.x, s.y);
-        const sprite = this.add.image(w.x, w.y, 'shell').setScale(SCALE).setAngle(DIR_ANGLE[s.dir]).setDepth(DEPTH.FLAME + 1);
-        // Estela de chispas detrás de la bala
-        const trail = this.add.particles(0, 0, 'pixel', {
+        const isTank = s.kind !== 'BULLET';
+        const sprite = this.add.image(w.x, w.y, isTank ? 'shell' : 'bullet')
+          .setScale(isTank ? SCALE : SCALE * 0.8).setAngle(DIR_ANGLE[s.dir]).setDepth(DEPTH.FLAME + 1);
+        // Estela de chispas solo para el obús del tanque. Las balas normales van sin
+        // estela: con el subfusil hay muchas a la vez y cada estela cuesta rendimiento.
+        const trail = isTank ? this.add.particles(0, 0, 'pixel', {
           follow: sprite, speed: 20, scale: { start: 2.5, end: 0 }, lifespan: 250,
           frequency: 15, tint: [0xffb000, 0xff5a00, 0xffffff],
-        }).setDepth(DEPTH.FLAME);
-        entry = { sprite, trail, interp: new GridInterpolator(s.x, s.y) };
+        }).setDepth(DEPTH.FLAME) : null;
+        entry = { sprite, trail, isTank, interp: new GridInterpolator(s.x, s.y) };
         this.shells.set(s.id, entry);
       }
       entry.interp.setTarget(s.x, s.y, this.msPerTick, now); // una casilla por tick
     });
     for (const [id, entry] of this.shells) {
       if (!seen.has(id)) {
-        this.burst(entry.sprite.x, entry.sprite.y, [0xffffff, 0xffb000], 10, 200);
+        this.burst(entry.sprite.x, entry.sprite.y, [0xffffff, 0xffb000], entry.isTank ? 10 : 3, entry.isTank ? 200 : 90);
         entry.sprite.destroy();
-        entry.trail.stop();
-        this.time.delayedCall(300, () => entry.trail.destroy());
+        if (entry.trail) {
+          entry.trail.stop();
+          this.time.delayedCall(300, () => entry.trail.destroy());
+        }
         this.shells.delete(id);
       }
     }
@@ -383,7 +448,8 @@ export class GameScene extends Phaser.Scene {
       if (!entry) {
         const w = tileToWorld(en.x, en.y);
         const sprite = this.add.sprite(w.x, w.y, 'enemy', 0).setScale(SCALE).play('enemy-wobble');
-        entry = { sprite, interp: new GridInterpolator(en.x, en.y), data: en };
+        const hpBar = this.add.graphics().setDepth(DEPTH.FX);
+        entry = { sprite, hpBar, interp: new GridInterpolator(en.x, en.y), data: en };
         this.enemies.set(en.id, entry);
       }
       entry.interp.setTarget(en.x, en.y, en.moveDelayTicks * this.msPerTick, now);
@@ -393,6 +459,7 @@ export class GameScene extends Phaser.Scene {
       if (!seen.has(id)) {
         // Muerto: se infla, se pone blanco y desaparece
         this.enemies.delete(id);
+        entry.hpBar.destroy();
         entry.sprite.stop().setTintFill(0xffffff);
         this.tweens.add({
           targets: entry.sprite, scale: SCALE * 1.6, alpha: 0, duration: 350,
@@ -419,13 +486,24 @@ export class GameScene extends Phaser.Scene {
         const tank = this.add.sprite(w.x, w.y, `tank${i}`, 0).setScale(SCALE).setVisible(false);
         const armor = this.add.text(w.x, w.y, '', textStyle(12, '#93c5fd')).setOrigin(0.5).setDepth(DEPTH.FX);
         const skull = this.add.image(w.x, w.y, 'skull').setScale(2).setDepth(DEPTH.FX).setVisible(false);
-        entry = { sprite, label, tank, armor, skull, bubble: null, interp: new GridInterpolator(p.x, p.y),
-                  data: p, color: i, wasAlive: p.alive };
+        // Modo pistolas: el arma en la mano y la barra de vida
+        const gun = this.add.image(w.x, w.y, 'gun-PISTOL').setScale(SCALE * 0.75).setVisible(false);
+        const hpBar = this.add.graphics().setDepth(DEPTH.FX);
+        entry = { sprite, label, tank, armor, skull, gun, hpBar, bubble: null,
+                  interp: new GridInterpolator(p.x, p.y), data: p, color: i, wasAlive: p.alive,
+                  // Solo NUESTRO personaje se predice (los demás se interpolan)
+                  predictor: isMe ? new LocalPredictor(p.x, p.y) : null };
         if (!p.alive) { sprite.setVisible(false); label.setVisible(false); }
         this.players.set(p.id, entry);
       }
-      // La duración del deslizamiento = lo que tarda el servidor en dejarle dar otro paso
-      entry.interp.setTarget(p.x, p.y, p.moveDelayTicks * this.msPerTick, now);
+      const stepMs = p.moveDelayTicks * this.msPerTick;
+      if (entry.predictor && p.alive) {
+        // Nuestro personaje: comparamos lo que predijimos con lo que dice el servidor
+        entry.predictor.reconcile(p.x, p.y, now, entry.interp, stepMs * 2 + net.latency + 150);
+      } else {
+        // La duración del deslizamiento = lo que tarda el servidor en dejarle dar otro paso
+        entry.interp.setTarget(p.x, p.y, stepMs, now);
+      }
       if (entry.wasAlive && !p.alive) this.playerDies(entry);
       entry.wasAlive = p.alive;
       entry.data = p;
@@ -434,6 +512,8 @@ export class GameScene extends Phaser.Scene {
 
   playerDies(entry) {
     entry.label.setVisible(false);
+    entry.gun.setVisible(false);
+    entry.hpBar.clear();
     entry.tank.setVisible(false);
     entry.armor.setVisible(false);
     entry.skull.setVisible(false);
@@ -485,7 +565,8 @@ export class GameScene extends Phaser.Scene {
           this.burst(w.x, w.y, [0xa855f7, 0x3b0764], 14, 160);
           const cursed = net.lastState.players.find((p) => p.id === ev.playerId);
           if (ev.playerId === net.playerId && cursed && cursed.curse) {
-            this.floatText(w.x, w.y - 30, CURSE_TEXT[cursed.curse], '#d8b4fe');
+            const texts = this.mode === 'GUNS' ? { ...CURSE_TEXT, ...CURSE_TEXT_GUNS } : CURSE_TEXT;
+            this.floatText(w.x, w.y - 30, texts[cursed.curse], '#d8b4fe');
           }
           break;
         }
@@ -503,9 +584,55 @@ export class GameScene extends Phaser.Scene {
           sfx.explosion();
           this.burst(w.x, w.y, [0x475569, 0x94a3b8, 0xff5a00], 26, 320);
           break;
-        case 'SHOT_FIRED':
-          sfx.shoot();
+        case 'SHOT_FIRED': {
+          const shooter = this.players.get(ev.playerId);
+          if (!shooter || shooter.data.tankArmor > 0) {
+            sfx.shoot(); // cañón del tanque
+          } else {
+            sfx.gunshot(shooter.data.weapon);
+            // Fogonazo en la boca del arma
+            this.burst(shooter.gun.x, shooter.gun.y, [0xfff3b0, 0xffb000], 4, 80);
+          }
           break;
+        }
+        case 'PICKAXE_SWING':
+          this.swingPickaxe(ev.playerId, w);
+          break;
+        case 'BLOCK_CRACKED':
+          sfx.pickaxe();
+          this.burst(w.x, w.y, [0xc8743c, 0x6b3a1f], 6, 140);
+          break;
+        case 'ENEMY_DAMAGED': {
+          const hit = [...this.enemies.values()].find((e) => e.data.x === ev.position.x && e.data.y === ev.position.y);
+          if (hit) {
+            hit.sprite.setTintFill(0xffffff);
+            this.time.delayedCall(70, () => hit.sprite.clearTint());
+          }
+          sfx.hitSoft();
+          break;
+        }
+        case 'PLAYER_DAMAGED': {
+          sfx.hitSoft();
+          this.burst(w.x, w.y, [0xef4444, 0xffffff], 6, 140);
+          if (ev.playerId === net.playerId) this.cameras.main.shake(90, 0.004);
+          break;
+        }
+        case 'HEALED':
+          sfx.heal();
+          this.burst(w.x, w.y, [0x22c55e, 0xffffff], 14, 160);
+          this.floatText(w.x, w.y - 30, '+vida', '#86efac');
+          break;
+        case 'WEAPON_UP':
+          sfx.powerUp();
+          if (ev.playerId === net.playerId) this.floatText(w.x, w.y - 30, '+cadencia', '#fde68a');
+          break;
+        case 'WEAPON_EVOLVED': {
+          sfx.evolve();
+          this.burst(w.x, w.y, [0xfbbf24, 0xffffff, 0x38bdf8], 28, 300);
+          const who = net.lastState.players.find((p) => p.id === ev.playerId);
+          if (who) this.floatText(w.x, w.y - 34, `¡${WEAPON_NAMES[who.weapon]}!`, '#fbbf24', 22);
+          break;
+        }
         // SUDDEN_DEATH y GAME_STARTED los anuncia el HUD (textos fijos en pantalla)
       }
     });
@@ -556,9 +683,69 @@ export class GameScene extends Phaser.Scene {
     this.time.delayedCall(800, () => emitter.destroy());
   }
 
-  floatText(x, y, text, color) {
-    const t = this.add.text(x, y, text, textStyle(16, color)).setOrigin(0.5).setDepth(DEPTH.FX);
-    this.tweens.add({ targets: t, y: y - 30, alpha: 0, duration: 900, onComplete: () => t.destroy() });
+  floatText(x, y, text, color, size = 16) {
+    const t = this.add.text(x, y, text, textStyle(size, color)).setOrigin(0.5).setDepth(DEPTH.FX);
+    this.tweens.add({ targets: t, y: y - 30, alpha: 0, duration: size > 16 ? 1400 : 900, onComplete: () => t.destroy() });
+  }
+
+  /** Animación del pico: aparece entre el jugador y la casilla golpeada y da un "zas". */
+  swingPickaxe(playerId, target) {
+    const entry = this.players.get(playerId);
+    if (!entry) return;
+    const x = (entry.sprite.x + target.x) / 2;
+    const y = (entry.sprite.y + target.y) / 2;
+    const pick = this.add.image(x, y, 'pickaxe').setScale(SCALE * 0.8).setDepth(DEPTH.FX).setAngle(-70);
+    this.tweens.add({
+      targets: pick, angle: 40, duration: 120, ease: 'Quad.in',
+      onComplete: () => this.tweens.add({ targets: pick, alpha: 0, duration: 120, onComplete: () => pick.destroy() }),
+    });
+    sfx.swing();
+  }
+
+  /**
+   * ¿Se puede pisar esta casilla? Las MISMAS reglas que el servidor (Game.canPlayerEnter):
+   * solo suelo, y sin bomba encima. La usa la predicción.
+   */
+  canEnter(x, y) {
+    const row = this.mapRows && this.mapRows[y];
+    if (!row || row[x] !== '.') return false;
+    for (const b of this.bombs.values()) {
+      if (b.interp.toX === x && b.interp.toY === y) return false;
+    }
+    return true;
+  }
+
+  /** Coloca el arma en la mano del jugador, girada hacia donde mira. */
+  placeGun(entry, p, facing, w, alpha) {
+    const [ox, oy] = GUN_OFFSET[facing];
+    entry.gun.setTexture(`gun-${p.weapon}`).setVisible(true).setAlpha(alpha)
+      .setPosition(w.x + ox, w.y + oy)
+      .setDepth(DEPTH.ENTITY + w.y + (facing === 'UP' ? -1 : 1)) // mirando arriba, el arma va detrás
+      .setFlipX(facing === 'LEFT')
+      .setAngle(facing === 'UP' ? -90 : facing === 'DOWN' ? 90 : 0);
+  }
+
+  /** Grietas en los bloques que llevan golpes de pico. */
+  syncCracks(list) {
+    const seen = new Set();
+    list.forEach((c) => {
+      const key = `${c.x},${c.y}`;
+      seen.add(key);
+      const texture = c.hits >= 2 ? 'crack2' : 'crack1';
+      let img = this.cracks.get(key);
+      if (!img) {
+        const w = tileToWorld(c.x, c.y);
+        img = this.add.image(w.x, w.y, texture).setScale(SCALE).setDepth(DEPTH.SOLID + 1);
+        this.cracks.set(key, img);
+      }
+      img.setTexture(texture);
+    });
+    for (const [key, img] of this.cracks) {
+      if (!seen.has(key)) {
+        img.destroy();
+        this.cracks.delete(key);
+      }
+    }
   }
 
   // ================================================= CADA FOTOGRAMA (60 FPS) ===
@@ -577,9 +764,23 @@ export class GameScene extends Phaser.Scene {
     for (const entry of this.players.values()) {
       const p = entry.data;
       if (!p.alive) continue;
+
+      // PREDICCIÓN: nuestro personaje avanza en cuanto pulsamos, sin esperar al servidor
+      let facing = p.facing;
+      let wantsToWalk = p.moving;
+      if (entry.predictor) {
+        const held = this.held[this.held.length - 1];
+        const dir = held && p.curse === 'REVERSED' ? OPPOSITE[held] : held; // misma regla que el servidor
+        if (!this.finished) {
+          entry.predictor.update(time, dir, (x, y) => this.canEnter(x, y), p.moveDelayTicks * this.msPerTick, entry.interp);
+        }
+        if (dir) facing = dir;
+        wantsToWalk = !!dir;
+      }
+
       const pos = entry.interp.position(time);
       const w = tileToWorld(pos.x, pos.y);
-      const walking = pos.moving || p.moving;
+      const walking = pos.moving || wantsToWalk;
       const inTank = p.tankArmor > 0;
       entry.sprite.setPosition(w.x, w.y - 4).setDepth(DEPTH.ENTITY + w.y);
       entry.label.setPosition(w.x, w.y - 34);
@@ -593,22 +794,32 @@ export class GameScene extends Phaser.Scene {
         // Montado en el tanque: se ve el tanque girado hacia donde mira
         entry.sprite.setVisible(false);
         entry.tank.setVisible(true).setPosition(w.x, w.y).setDepth(DEPTH.ENTITY + w.y)
-          .setAngle(DIR_ANGLE[p.facing]).setAlpha(alpha);
+          .setAngle(DIR_ANGLE[facing]).setAlpha(alpha);
         if (walking) entry.tank.play(`tank${entry.color}-roll`, true);
         else entry.tank.stop();
         entry.armor.setVisible(true).setPosition(w.x, w.y + 30).setText('■'.repeat(p.tankArmor));
+        entry.gun.setVisible(false);
       } else {
         entry.tank.setVisible(false);
         entry.armor.setVisible(false);
-        entry.sprite.setVisible(true).setAlpha(alpha).setFlipX(p.facing === 'LEFT');
+        entry.sprite.setVisible(true).setAlpha(alpha).setFlipX(facing === 'LEFT');
         const key = `player${entry.color}`;
         if (walking) {
-          const anim = p.facing === 'UP' ? 'up' : p.facing === 'DOWN' ? 'down' : 'side';
+          const anim = facing === 'UP' ? 'up' : facing === 'DOWN' ? 'down' : 'side';
           entry.sprite.play(`${key}-walk-${anim}`, true); // true = no reiniciar si ya está sonando
         } else {
           entry.sprite.stop();
-          entry.sprite.setFrame(STAND_FRAME[p.facing]);
+          entry.sprite.setFrame(STAND_FRAME[facing]);
         }
+        // Modo pistolas: el arma en la mano, apuntando hacia donde mira
+        if (this.mode === 'GUNS') this.placeGun(entry, p, facing, w, alpha);
+        else entry.gun.setVisible(false);
+      }
+
+      // Modo pistolas: barra de vida encima de la cabeza
+      entry.hpBar.clear();
+      if (this.mode === 'GUNS' && !inTank) {
+        drawBar(entry.hpBar, w.x - 18, w.y - 26, 36, 5, p.hp / p.maxHp);
       }
 
       // Maldito: calavera flotando sobre la cabeza y el personaje parpadea en morado
@@ -638,11 +849,14 @@ export class GameScene extends Phaser.Scene {
       entry.sprite.setPosition(w.x, w.y);
     }
 
-    // Enemigos
+    // Enemigos (con barra de vida si están heridos, en el modo pistolas)
     for (const entry of this.enemies.values()) {
       const pos = entry.interp.position(time);
       const w = tileToWorld(pos.x, pos.y);
       entry.sprite.setPosition(w.x, w.y - 2).setDepth(DEPTH.ENTITY + w.y).setFlipX(entry.data.dir === 'LEFT');
+      entry.hpBar.clear();
+      const e = entry.data;
+      if (e.maxHp > 1 && e.hp < e.maxHp) drawBar(entry.hpBar, w.x - 16, w.y - 26, 32, 4, e.hp / e.maxHp);
     }
 
     // Bombas: "laten" cada vez más rápido y se ponen rojas antes de explotar
