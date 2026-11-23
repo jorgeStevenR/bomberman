@@ -1,0 +1,89 @@
+// Grafana Alloy: agente que recoge los logs de los contenedores y los envía a Loki.
+// (Es el sucesor oficial de Promtail.) En AWS haría lo mismo el driver "awslogs"
+// de ECS hacia CloudWatch Logs, o un sidecar FireLens.
+//
+// Flujo:  contenedores (stdout) → Docker → Alloy → Loki → Grafana
+
+// 1. Descubre los contenedores que están corriendo, leyendo el socket de Docker
+discovery.docker "containers" {
+  host             = "unix:///var/run/docker.sock"
+  refresh_interval = "5s"
+}
+
+// 2. Convierte metadatos de Docker en etiquetas de Loki
+discovery.relabel "containers" {
+  targets = []
+
+  // Solo los contenedores de este proyecto de Docker Compose
+  rule {
+    source_labels = ["__meta_docker_container_label_com_docker_compose_project"]
+    regex         = "bomberman"
+    action        = "keep"
+  }
+  rule {
+    source_labels = ["__meta_docker_container_label_com_docker_compose_project"]
+    target_label  = "project"
+  }
+  // service = tipo de componente (game-server, api, nginx, postgres...)
+  rule {
+    source_labels = ["__meta_docker_container_label_service_type"]
+    target_label  = "service"
+  }
+  // container = instancia concreta (game-1, game-2, api-1...)
+  rule {
+    source_labels = ["__meta_docker_container_label_com_docker_compose_service"]
+    target_label  = "container"
+  }
+}
+
+// 3. Lee los logs de esos contenedores
+loki.source.docker "containers" {
+  host          = "unix:///var/run/docker.sock"
+  targets       = discovery.docker.containers.targets
+  relabel_rules = discovery.relabel.containers.rules
+  forward_to    = [loki.process.levels.receiver]
+}
+
+// 4. Extrae el nivel del log (INFO/WARN/ERROR) como etiqueta para filtrar rápido.
+//    La API, el game-server y Nginx escriben JSON con el campo "level".
+loki.process "levels" {
+  stage.json {
+    expressions = { level = "level" }
+  }
+
+  // PostgreSQL escribe texto plano: "... ERROR:  mensaje"
+  stage.match {
+    selector = "{service=\"postgres\"}"
+    stage.regex {
+      expression = "(?P<level>ERROR|FATAL|PANIC|WARNING|LOG):"
+    }
+    stage.replace {
+      source     = "level"
+      expression = "(WARNING)"
+      replace    = "WARN"
+    }
+    stage.replace {
+      source     = "level"
+      expression = "(FATAL|PANIC)"
+      replace    = "ERROR"
+    }
+    stage.replace {
+      source     = "level"
+      expression = "(LOG)"
+      replace    = "INFO"
+    }
+  }
+
+  stage.labels {
+    values = { level = "" }
+  }
+
+  forward_to = [loki.write.local.receiver]
+}
+
+// 5. Envía a Loki
+loki.write "local" {
+  endpoint {
+    url = "http://loki:3100/loki/api/v1/push"
+  }
+}

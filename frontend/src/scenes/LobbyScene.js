@@ -50,6 +50,9 @@ export class LobbyScene extends Phaser.Scene {
       this.scene.start('Menu');
     }, { width: 160, color: 0x94a3b8 });
 
+    // Qué réplica del game-server atiende esta sala: sirve para demostrar el balanceo
+    this.serverText = this.add.text(width / 2, 684, '', textStyle(14, '#94a3b8')).setOrigin(0.5);
+
     net.on('lobby', this.render, this);
     this.closing = false;
     this.events.once('shutdown', () => {
@@ -64,6 +67,7 @@ export class LobbyScene extends Phaser.Scene {
     // justo después: si la escena ya no está activa, no tocamos sus sprites.
     if (this.closing) return;
     this.codeText.setText(lobby.room);
+    this.serverText.setText(net.serverId ? `Servidor: ${net.serverId}` : '');
     this.slots.forEach((slot) => {
       const p = lobby.players[slot.index];
       if (p) {

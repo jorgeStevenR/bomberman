@@ -80,6 +80,7 @@ public class GameRoom {
     private final GameConfig config;
     private final GameServerProperties props;
     private final ObjectMapper mapper;
+    private final MatchReporter reporter;
     private final Random random = new Random();
     private final Queue<RoomCommand> commands = new ConcurrentLinkedQueue<>();
 
@@ -93,17 +94,21 @@ public class GameRoom {
     private long emptySince = -1;
     /** Versión del mapa enviada por última vez (-1 = hay que enviarlo sí o sí). */
     private int lastSentMapVersion = -1;
+    /** Momento en que empezó la partida actual (para guardar su duración). */
+    private long startedAt;
 
     // ---- Los leen otros hilos (métricas, limpieza) ----
     private volatile boolean closed = false;
     private volatile int connectedCount = 0;
     private volatile ScheduledFuture<?> task;
 
-    public GameRoom(String code, GameConfig config, GameServerProperties props, ObjectMapper mapper) {
+    public GameRoom(String code, GameConfig config, GameServerProperties props, ObjectMapper mapper,
+                    MatchReporter reporter) {
         this.code = code;
         this.config = config;
         this.props = props;
         this.mapper = mapper;
+        this.reporter = reporter;
     }
 
     /** Llamado desde los hilos de red: solo encola. */
@@ -323,15 +328,18 @@ public class GameRoom {
             game.addPlayer(slot.id, slot.name);
         }
         game.start();
+        startedAt = System.currentTimeMillis();
         lastSentMapVersion = -1; // partida nueva = mapa nuevo
-        log.info("Sala {}: empieza la partida con {} jugadores", code, slots.size());
+        log.info("Sala {}: empieza la partida con {} jugadores en modo {}", code, slots.size(), mode);
         broadcastLobby();
     }
 
     private void onGameOver() {
         broadcast(Snapshots.gameOver(game));
-        log.info("Sala {}: fin de la partida, gana {}", code, game.getWinnerId());
-        // (Fase 4: aquí enviaremos el resultado a la API para guardarlo en PostgreSQL.)
+        long seconds = (System.currentTimeMillis() - startedAt) / 1000;
+        String winner = game.getWinnerId() == null ? "nadie" : game.getPlayer(game.getWinnerId()).getName();
+        log.info("Sala {}: fin de la partida, gana {} ({} s)", code, winner, seconds);
+        reporter.report(code, mode, game, seconds); // se guarda en PostgreSQL a través de la API
 
         // Quien sigue desconectado ya no vuelve a esta sala.
         slots.values().removeIf(s -> !s.isConnected());

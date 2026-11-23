@@ -19,6 +19,10 @@ game:
   # Trucos para probar (tecla T = tanque). Desactivados por defecto: el servidor
   # rechaza el mensaje CHEAT. Solo se activan en el perfil "dev".
   cheats-enabled: false
+  # API (Node + PostgreSQL) donde se guarda el resultado de cada partida.
+  # Vacía = no se guarda nada (jugar en local sin Docker sigue funcionando igual).
+  api-url: ${API_URL:}
+  api-token: ${API_TOKEN:}
 
 # Spring Actuator: el equivalente local a CloudWatch
 management:
