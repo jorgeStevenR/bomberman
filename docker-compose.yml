@@ -1,0 +1,237 @@
+# Simulación local de la arquitectura AWS con Docker Compose (sin costos de nube).
+#
+#   Navegador ──► nginx (balanceador, "ALB")  ──► game-1 / game-2 / game-3  (WebSocket, hash por sala)
+#                    │                          └► api-1 / api-2           (REST, least_conn) ──► postgres
+#                    └─ frontend estático ("S3 + CloudFront")
+#
+#   Todos los contenedores ──stdout──► alloy ──► loki ──► grafana (dashboard)
+#
+# Equivalencias con AWS:
+#   red "public"  ≈ subnet pública  (solo nginx y grafana publican puertos)
+#   red "backend" ≈ subnet privada  (game, api, postgres, loki: sin puertos hacia fuera)
+#
+# Arrancar:   docker compose up -d --build
+# Juego:      http://localhost:8080        Grafana: http://localhost:3001
+
+name: bomberman
+
+# ---- Bloques reutilizables (anclas YAML) para no repetir configuración ----
+x-game-server: &game-server
+  build: ./game-server
+  image: bomberman/game-server:latest
+  restart: unless-stopped
+  labels:
+    service_type: game-server
+  deploy:
+    resources:
+      limits: { cpus: "1.0", memory: 512M }   # "tamaño de instancia" (escalado vertical)
+  logging: &logging
+    driver: json-file
+    options: { max-size: "10m", max-file: "3" }
+
+x-game-env: &game-env
+  API_URL: http://api-1:3000
+  API_TOKEN: ${API_TOKEN:-cambia-este-token-interno}
+
+x-api: &api
+  build: ./api
+  image: bomberman/api:latest
+  restart: unless-stopped
+  labels:
+    service_type: api
+  depends_on:
+    postgres:
+      condition: service_healthy
+  deploy:
+    resources:
+      limits: { cpus: "0.5", memory: 256M }
+  logging: *logging
+
+x-api-env: &api-env
+  PORT: "3000"
+  SERVICE_NAME: api
+  DB_HOST: postgres
+  DB_PORT: "5432"
+  DB_NAME: bomberman
+  DB_USER: bomberman
+  DB_PASSWORD: ${POSTGRES_PASSWORD:-bomberman_dev_password}
+  API_TOKEN: ${API_TOKEN:-cambia-este-token-interno}
+
+services:
+  # ======================= Balanceador + frontend =======================
+  nginx:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    labels:
+      service_type: nginx
+    ports:
+      - "8080:80"                      # único punto de entrada al juego
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./frontend:/usr/share/nginx/html:ro
+    networks:
+      public: {}
+      backend: { ipv4_address: 172.30.0.5 }
+    depends_on:
+      game-1: { condition: service_healthy }
+      game-2: { condition: service_healthy }
+      game-3: { condition: service_healthy }
+      api-1: { condition: service_healthy }
+      api-2: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1/nginx-health"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+    logging: *logging
+
+  # ======================= Game-servers (3 réplicas) =======================
+  # Escalado HORIZONTAL: más réplicas iguales detrás del balanceador.
+  # (En AWS: servicio de ECS con Auto Scaling según CPU / conexiones.)
+  game-1:
+    <<: *game-server
+    environment:
+      <<: *game-env
+      SERVER_ID: game-1
+    networks:
+      backend: { ipv4_address: 172.30.0.11 }
+
+  game-2:
+    <<: *game-server
+    environment:
+      <<: *game-env
+      SERVER_ID: game-2
+      API_URL: http://api-2:3000     # cada game-server habla con una API distinta
+    networks:
+      backend: { ipv4_address: 172.30.0.12 }
+
+  game-3:
+    <<: *game-server
+    environment:
+      <<: *game-env
+      SERVER_ID: game-3
+    networks:
+      backend: { ipv4_address: 172.30.0.13 }
+
+  # ======================= API REST (2 instancias) =======================
+  api-1:
+    <<: *api
+    environment:
+      <<: *api-env
+      INSTANCE_ID: api-1
+    networks:
+      backend: { ipv4_address: 172.30.0.21 }
+
+  api-2:
+    <<: *api
+    environment:
+      <<: *api-env
+      INSTANCE_ID: api-2
+    networks:
+      backend: { ipv4_address: 172.30.0.22 }
+
+  # ======================= Base de datos =======================
+  # En AWS: Amazon RDS for PostgreSQL (Multi-AZ) en subnet privada.
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    labels:
+      service_type: postgres
+    environment:
+      POSTGRES_DB: bomberman
+      POSTGRES_USER: bomberman
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-bomberman_dev_password}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./db/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+    networks:
+      backend: { ipv4_address: 172.30.0.30 }
+    # Sin "ports": la base de datos NO es accesible desde fuera de la red interna
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U bomberman -d bomberman"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    deploy:
+      resources:
+        limits: { cpus: "1.0", memory: 512M }
+    logging: *logging
+
+  # ======================= Observabilidad =======================
+  loki:
+    image: grafana/loki:3.5.3
+    restart: unless-stopped
+    labels:
+      service_type: loki
+    command: -config.file=/etc/loki/config.yml
+    volumes:
+      - ./observability/loki/loki-config.yml:/etc/loki/config.yml:ro
+      - lokidata:/loki
+    networks:
+      backend: { ipv4_address: 172.30.0.40 }
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3100/ready | grep -q ready"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 15s
+    logging: *logging
+
+  # Agente que recoge los logs de todos los contenedores y los manda a Loki
+  alloy:
+    image: grafana/alloy:v1.10.0
+    restart: unless-stopped
+    labels:
+      service_type: alloy
+    command: run --server.http.listen-addr=0.0.0.0:12345 --storage.path=/var/lib/alloy/data /etc/alloy/config.alloy
+    volumes:
+      - ./observability/alloy/config.alloy:/etc/alloy/config.alloy:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - alloydata:/var/lib/alloy/data
+    networks:
+      backend: { ipv4_address: 172.30.0.41 }
+    depends_on:
+      loki: { condition: service_healthy }
+    logging: *logging
+
+  grafana:
+    image: grafana/grafana:12.1.1
+    restart: unless-stopped
+    labels:
+      service_type: grafana
+    ports:
+      - "3001:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin_bomberman}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/bomberman.json
+    volumes:
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafanadata:/var/lib/grafana
+    networks:
+      public: {}
+      backend: { ipv4_address: 172.30.0.42 }
+    depends_on:
+      loki: { condition: service_healthy }
+    logging: *logging
+
+networks:
+  # "Subnet pública": la única con puertos publicados al host
+  public:
+    driver: bridge
+  # "Subnet privada": IPs fijas para que Nginx muestre nombres en los logs
+  backend:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.30.0.0/24
+
+volumes:
+  pgdata:
+  lokidata:
+  alloydata:
+  grafanadata:

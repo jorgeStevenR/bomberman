@@ -33,10 +33,13 @@ public class RoomManager {
             Executors.newScheduledThreadPool(Math.max(2, Runtime.getRuntime().availableProcessors()));
     private final GameServerProperties props;
     private final ObjectMapper mapper;
+    private final MatchReporter reporter;
 
-    public RoomManager(GameServerProperties props, ObjectMapper mapper, MeterRegistry metrics) {
+    public RoomManager(GameServerProperties props, ObjectMapper mapper, MeterRegistry metrics,
+                       MatchReporter reporter) {
         this.props = props;
         this.mapper = mapper;
+        this.reporter = reporter;
 
         // Métricas visibles en /actuator/metrics (equivalente a métricas de CloudWatch)
         Gauge.builder("bomberman.rooms.active", rooms, Map::size)
@@ -70,11 +73,10 @@ public class RoomManager {
     }
 
     private GameRoom createRoom(String code) {
-        GameRoom room = new GameRoom(code, new GameConfig(), props, mapper);
+        GameRoom room = new GameRoom(code, new GameConfig(), props, mapper, reporter);
         long periodMs = 1000L / props.tickRate();
         room.setTask(scheduler.scheduleAtFixedRate(room::loop, periodMs, periodMs, TimeUnit.MILLISECONDS));
         log.info("Sala {} creada en el servidor '{}'", code, props.serverId());
-        // (Fase 5: aquí registraremos en Redis que la sala vive en este servidor.)
         return room;
     }
 

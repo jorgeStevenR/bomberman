@@ -13,5 +13,9 @@ public record GameServerProperties(
         int reconnectGraceSeconds,
         int maxMessagesPerSecond,
         String[] allowedOrigins,
-        boolean cheatsEnabled) {
+        boolean cheatsEnabled,
+        /** URL de la API de resultados (vacía = no se guardan, p. ej. en desarrollo sin Docker). */
+        String apiUrl,
+        /** Secreto compartido con la API: solo los game-servers pueden guardar partidas. */
+        String apiToken) {
 }

@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Bomberman — Ranking</title>
+  <link rel="icon" href="data:,">
+  <style>
+    body { margin: 0; padding: 24px 16px; background: #0b1020; color: #e2e8f0;
+           font-family: "Trebuchet MS", Verdana, sans-serif; }
+    main { max-width: 900px; margin: 0 auto; }
+    h1 { color: #fbbf24; margin: 0 0 4px; }
+    h2 { color: #fde68a; margin-top: 32px; }
+    a { color: #38bdf8; }
+    .meta { color: #94a3b8; font-size: 14px; }
+    table { width: 100%; border-collapse: collapse; background: #111827; border-radius: 8px; overflow: hidden; }
+    th, td { padding: 8px 10px; text-align: left; border-bottom: 1px solid #1f2937; font-size: 15px; }
+    th { background: #1f2937; color: #fbbf24; }
+    td.num, th.num { text-align: right; }
+    .wrap { overflow-x: auto; }
+    .err { color: #fca5a5; }
+  </style>
+</head>
+<body>
+<main>
+  <h1>🏆 Ranking</h1>
+  <p class="meta">Datos guardados en PostgreSQL a través de la API.
+    <span id="served"></span> · <a href="./">Volver al juego</a></p>
+
+  <h2>Mejores jugadores</h2>
+  <div class="wrap"><table>
+    <thead><tr><th>#</th><th>Jugador</th><th class="num">Victorias</th><th class="num">Partidas</th>
+      <th class="num">Puntos</th><th class="num">Mejor</th></tr></thead>
+    <tbody id="leaderboard"><tr><td colspan="6">Cargando…</td></tr></tbody>
+  </table></div>
+
+  <h2>Últimas partidas</h2>
+  <div class="wrap"><table>
+    <thead><tr><th>Fecha</th><th>Sala</th><th>Servidor</th><th>Modo</th><th>Ganador</th>
+      <th class="num">Duración</th><th>Jugadores</th></tr></thead>
+    <tbody id="matches"><tr><td colspan="7">Cargando…</td></tr></tbody>
+  </table></div>
+</main>
+
+<script>
+  // Escapa texto para no inyectar HTML con nombres de jugador maliciosos
+  const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const MODES = { CLASSIC: '💣 Clásico', GUNS: '🔫 Pistolas' };
+
+  async function get(path) {
+    const res = await fetch(path);
+    if (!res.ok) throw new Error(`${path} → ${res.status}`);
+    // Qué instancia de la API respondió (demo del balanceo)
+    document.getElementById('served').textContent = `Respondió: ${res.headers.get('X-Served-By') || '?'}`;
+    return res.json();
+  }
+
+  async function load() {
+    try {
+      const board = await get('api/leaderboard');
+      document.getElementById('leaderboard').innerHTML = board.length
+        ? board.map((p, i) => `<tr><td>${i + 1}</td><td>${esc(p.name)}</td><td class="num">${p.wins}</td>
+            <td class="num">${p.games}</td><td class="num">${p.total_score}</td><td class="num">${p.best_score}</td></tr>`).join('')
+        : '<tr><td colspan="6">Todavía no hay partidas. ¡Juega una!</td></tr>';
+
+      const matches = await get('api/matches');
+      document.getElementById('matches').innerHTML = matches.length
+        ? matches.map((m) => `<tr><td>${new Date(m.created_at).toLocaleString()}</td><td>${esc(m.room)}</td>
+            <td>${esc(m.server_id)}</td><td>${MODES[m.mode] || esc(m.mode)}</td><td>${esc(m.winner_name || '—')}</td>
+            <td class="num">${m.duration_seconds} s</td>
+            <td>${m.players.map((p) => `${esc(p.name)} (${p.score})`).join(', ')}</td></tr>`).join('')
+        : '<tr><td colspan="7">Sin partidas.</td></tr>';
+    } catch (e) {
+      document.getElementById('leaderboard').innerHTML =
+        `<tr><td colspan="6" class="err">No se pudo contactar con la API (${esc(e.message)}).</td></tr>`;
+    }
+  }
+  load();
+  setInterval(load, 10000);
+</script>
+</body>
+</html>

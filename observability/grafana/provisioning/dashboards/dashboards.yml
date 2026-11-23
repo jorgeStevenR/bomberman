@@ -1,0 +1,12 @@
+# Carga automáticamente los dashboards JSON de /var/lib/grafana/dashboards
+apiVersion: 1
+
+providers:
+  - name: bomberman
+    folder: Bomberman
+    type: file
+    disableDeletion: true
+    allowUiUpdates: true
+    updateIntervalSeconds: 30
+    options:
+      path: /var/lib/grafana/dashboards

@@ -1,0 +1,13 @@
+# Perfil "docker": se activa en el contenedor (SPRING_PROFILES_ACTIVE=docker).
+#
+# Logs estructurados en JSON (formato logstash) por la salida estándar:
+# Promtail los recoge de Docker y los envía a Loki. En Grafana se filtran con
+# "| json | level=\"ERROR\"". En AWS, ECS los mandaría a CloudWatch Logs igual.
+logging:
+  structured:
+    format:
+      console: logstash
+    json:
+      add:
+        service: game-server
+        instance: ${SERVER_ID:${HOSTNAME:desconocido}}
