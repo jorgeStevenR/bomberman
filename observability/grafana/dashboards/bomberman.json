@@ -292,16 +292,16 @@
             "type": "loki",
             "uid": "loki"
           },
-          "expr": "sum by (instance) (count_over_time({service=\"game-server\"} |= \"creada en el servidor\" | json [$__range]))",
+          "expr": "sum by (instance) (count_over_time({service=\"game-server\"} |= \"creada en el servidor\" | json [$__interval]))",
           "legendFormat": "{{instance}}",
-          "queryType": "instant"
+          "queryType": "range"
         }
       ],
       "options": {
         "pieType": "donut",
         "reduceOptions": {
           "calcs": [
-            "lastNotNull"
+            "sum"
           ],
           "fields": "",
           "values": false
@@ -347,16 +347,16 @@
             "type": "loki",
             "uid": "loki"
           },
-          "expr": "sum by (upstream_name) (count_over_time({service=\"nginx\"} | json | path=~\"/api/.*\" and upstream_name != \"\" [$__range]))",
+          "expr": "sum by (upstream_name) (count_over_time({service=\"nginx\"} | json | path=~\"/api/.*\" and upstream_name != \"\" [$__interval]))",
           "legendFormat": "{{upstream_name}}",
-          "queryType": "instant"
+          "queryType": "range"
         }
       ],
       "options": {
         "pieType": "donut",
         "reduceOptions": {
           "calcs": [
-            "lastNotNull"
+            "sum"
           ],
           "fields": "",
           "values": false

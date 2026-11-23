@@ -1,4 +1,4 @@
-<#
+﻿<#
   Demostración del balanceo de carga (para la presentación).
 
   1) API REST (least_conn): 10 peticiones a /api/health → se ve qué instancia
@@ -31,21 +31,28 @@ foreach ($room in $rooms) {
     $ws = New-Object System.Net.WebSockets.ClientWebSocket
     $cts = New-Object System.Threading.CancellationTokenSource 5000
     try {
-        $ws.ConnectAsync([Uri]"$wsBase/ws/game?room=$room", $cts.Token).Wait()
+        if (-not $ws.ConnectAsync([Uri]"$wsBase/ws/game?room=$room", $cts.Token).Wait(5000)) { throw "sin respuesta al conectar" }
         $join = [Text.Encoding]::UTF8.GetBytes('{"type":"JOIN","name":"demo"}')
-        $ws.SendAsync([ArraySegment[byte]]$join, 'Text', $true, $cts.Token).Wait()
+        $segment = New-Object 'ArraySegment[byte]' (, $join)
+        $ws.SendAsync($segment, [Net.WebSockets.WebSocketMessageType]::Text, $true, $cts.Token).Wait(5000) | Out-Null
 
+        # El servidor contesta con WELCOME, que incluye "server" = réplica que atiende la sala
         $buffer = New-Object byte[] 65536
         $serverId = $null
-        while (-not $serverId) {
-            $res = $ws.ReceiveAsync([ArraySegment[byte]]$buffer, $cts.Token).Result
-            $msg = [Text.Encoding]::UTF8.GetString($buffer, 0, $res.Count) | ConvertFrom-Json
-            if ($msg.type -eq 'WELCOME') { $serverId = $msg.serverId }
+        $deadline = (Get-Date).AddSeconds(5)
+        while (-not $serverId -and (Get-Date) -lt $deadline -and $ws.State -eq 'Open') {
+            $task = $ws.ReceiveAsync((New-Object 'ArraySegment[byte]' (, $buffer)), $cts.Token)
+            if (-not $task.Wait(5000)) { break }
+            $msg = [Text.Encoding]::UTF8.GetString($buffer, 0, $task.Result.Count) | ConvertFrom-Json
+            if ($msg.type -eq 'WELCOME') { $serverId = $msg.server }
+            if ($msg.type -eq 'ERROR') { throw "$($msg.code): $($msg.message)" }
         }
+        if (-not $serverId) { throw "el servidor no respondió" }
         "sala {0,-6} → {1}" -f $room, $serverId
-        $ws.CloseAsync('NormalClosure', 'demo', [Threading.CancellationToken]::None).Wait()
+        try { $ws.CloseAsync('NormalClosure', 'demo', [Threading.CancellationToken]::None).Wait(2000) | Out-Null } catch { }
     } catch {
-        "sala {0,-6} → ERROR: {1}" -f $room, $_.Exception.InnerException.Message
+        $err = if ($_.Exception.InnerException) { $_.Exception.InnerException.Message } else { $_.Exception.Message }
+        "sala {0,-6} → ERROR: {1}" -f $room, $err
     } finally {
         $ws.Dispose()
     }

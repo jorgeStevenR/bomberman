@@ -62,7 +62,7 @@ class Network extends Phaser.Events.EventEmitter {
         case 'WELCOME':
           this.playerId = msg.playerId;
           this.tickRate = msg.tickRate;
-          this.serverId = msg.serverId; // qué réplica del game-server atiende la sala (demo del balanceo)
+          this.serverId = msg.server; // qué réplica del game-server atiende la sala (demo del balanceo)
           sessionStorage.setItem(this._tokenKey(), msg.reconnectToken);
           this.emit('welcome', msg);
           break;
