@@ -292,7 +292,7 @@
             "type": "loki",
             "uid": "loki"
           },
-          "expr": "sum by (instance) (count_over_time({service=\"game-server\"} |= \"creada en el servidor\" | json [$__interval]))",
+          "expr": "sum by (instance) (count_over_time({service=\"game-server\"} |= \"creada en el servidor\" | json | __error__=\"\" [$__interval]))",
           "legendFormat": "{{instance}}",
           "queryType": "range"
         }
@@ -347,7 +347,7 @@
             "type": "loki",
             "uid": "loki"
           },
-          "expr": "sum by (upstream_name) (count_over_time({service=\"nginx\"} | json | path=~\"/api/.*\" and upstream_name != \"\" [$__interval]))",
+          "expr": "sum by (upstream_name) (count_over_time({service=\"nginx\"} | json | __error__=\"\" | path=~\"/api/.*\" and upstream_name != \"\" [$__interval]))",
           "legendFormat": "{{upstream_name}}",
           "queryType": "range"
         }
@@ -402,7 +402,7 @@
             "type": "loki",
             "uid": "loki"
           },
-          "expr": "sum by (upstream_name) (count_over_time({service=\"nginx\"} | json | upstream_name != \"\" [1m]))",
+          "expr": "sum by (upstream_name) (count_over_time({service=\"nginx\"} | json | __error__=\"\" | upstream_name != \"\" [1m]))",
           "legendFormat": "{{upstream_name}}",
           "queryType": "range"
         }
@@ -467,7 +467,7 @@
             "type": "loki",
             "uid": "loki"
           },
-          "expr": "sum by (status) (count_over_time({service=\"nginx\"} | json [1m]))",
+          "expr": "sum by (status) (count_over_time({service=\"nginx\"} | json | __error__=\"\" [1m]))",
           "legendFormat": "{{status}}",
           "queryType": "range"
         }
@@ -519,7 +519,7 @@
             "type": "loki",
             "uid": "loki"
           },
-          "expr": "quantile_over_time(0.50, {service=\"api\"} | json | unwrap duration_ms [1m]) by (container)",
+          "expr": "quantile_over_time(0.50, {service=\"api\"} | json | __error__=\"\" | unwrap duration_ms [1m]) by (container)",
           "legendFormat": "p50 {{container}}",
           "queryType": "range"
         },
@@ -529,7 +529,7 @@
             "type": "loki",
             "uid": "loki"
           },
-          "expr": "quantile_over_time(0.95, {service=\"api\"} | json | unwrap duration_ms [1m]) by (container)",
+          "expr": "quantile_over_time(0.95, {service=\"api\"} | json | __error__=\"\" | unwrap duration_ms [1m]) by (container)",
           "legendFormat": "p95 {{container}}",
           "queryType": "range"
         }
@@ -748,7 +748,7 @@
             "type": "loki",
             "uid": "loki"
           },
-          "expr": "{service=\"game-server\"} | json | line_format \"[{{.instance}}] {{.message}}\"",
+          "expr": "{service=\"game-server\"} | json | __error__=\"\" | line_format \"[{{.instance}}] {{.message}}\"",
           "queryType": "range"
         }
       ],

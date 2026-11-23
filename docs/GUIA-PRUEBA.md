@@ -166,6 +166,9 @@ docker compose start api-1 postgres
 | Problema | Solución |
 |---|---|
 | `error during connect` o `cannot find the file specified` | Docker Desktop no está abierto. Ábrelo y espera a "Engine running". |
+| `docker : The term 'docker' is not recognized` justo después de instalar Docker | La terminal se abrió antes de instalarlo. Cierra VS Code (o PowerShell) por completo y vuélvelo a abrir. |
+| `request returned 500 Internal Server Error ... dockerDesktopLinuxEngine` | El motor de Docker se cayó (pasa a veces en el primer arranque). En Docker Desktop: icono del bicho (Troubleshoot) → **Restart**, o ciérralo y ábrelo. Espera "Engine running" y repite. |
+| `Conflict. The container name "/bomberman-...-1" is already in use` | Se lanzaron dos `docker compose up` a la vez. Ejecuta `docker compose up -d` otra vez: reutiliza lo ya creado. |
 | `port is already allocated` (8080 o 3001) | Otro programa usa ese puerto. Ciérralo, o cambia el número de la izquierda en `docker-compose.yml` (por ejemplo `"8090:80"`) y usa ese puerto en el navegador. |
 | `Pool overlaps with other one on this address space` | Otra red de Docker usa `172.30.0.0/24`. Ejecuta `docker network prune` y vuelve a intentarlo. |
 | `nginx` se reinicia en bucle | Mira el motivo con `docker compose logs nginx`. Suele ser que algún `game-N` o `api-N` no arrancó: revisa sus logs. |
